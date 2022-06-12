@@ -2,6 +2,7 @@ package main
 
 import (
 	"github.com/0xa1-red/an-dagda/backend/etcd"
+	"github.com/davecgh/go-spew/spew"
 )
 
 var (
@@ -58,8 +59,11 @@ func main() {
 	// 	}
 	// }
 
-	if err := etcdProvider.GetCurrentTasks(); err != nil {
+	scheduled, err := etcdProvider.GetCurrentTasks()
+	if err != nil {
 		panic(err)
 	}
+
+	spew.Dump(scheduled)
 
 }

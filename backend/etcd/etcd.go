@@ -11,11 +11,11 @@ import (
 	"time"
 
 	"github.com/0xa1-red/an-dagda/schedule"
-	"github.com/davecgh/go-spew/spew"
-	"github.com/google/uuid"
 	clientv3 "go.etcd.io/etcd/client/v3"
 )
 
+// Provider is an etcd backend
+// TODO: Add a way to lock items currently being queried so they aren't accessed from anywhere else
 type Provider struct {
 	*clientv3.Client
 }
@@ -35,8 +35,15 @@ func New(endpoints []string) (*Provider, error) {
 	return &backend, nil
 }
 
-func (b *Provider) Put(key, value string) error {
-	if _, err := b.KV.Put(context.Background(), key, value); err != nil {
+func (b *Provider) Put(ctx context.Context, key, value string) error {
+	if _, err := b.KV.Put(ctx, key, value); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (b *Provider) Delete(ctx context.Context, key, value string) error {
+	if _, err := b.KV.Delete(ctx, key); err != nil {
 		return err
 	}
 	return nil
@@ -46,54 +53,30 @@ func tf(t time.Time) string {
 	return t.Format(time.RFC3339)
 }
 
-func (b *Provider) GetCurrentTasks() error {
+func (b *Provider) GetCurrentTasks() ([]*schedule.Task, error) {
 	now := time.Now()
 	log.Printf("Getting scheduled messages older than %s", tf(now))
-	items := map[uuid.UUID]*schedule.Task{}
-	op := clientv3.OpGet("schedule/0", clientv3.WithFromKey(), clientv3.WithLimit(2), clientv3.WithSort(clientv3.SortByKey, clientv3.SortAscend))
-	var outOfRange bool
+	items := []*schedule.Task{}
+	op := clientv3.OpGet("schedule/0", clientv3.WithFromKey(), clientv3.WithRange(fmt.Sprintf("schedule/%d", now.UnixNano())), clientv3.WithSort(clientv3.SortByKey, clientv3.SortAscend))
 
-	for !outOfRange {
-		res, err := b.Do(context.Background(), op)
-		if err != nil {
-			return err
-		}
-
-		if len(res.Get().Kvs) == 0 {
-			break
-		}
-
-		for _, item := range res.Get().Kvs {
-			ts, err := parseTimestampFromKey(item.Key)
-			if err != nil {
-				return err
-			}
-
-			log.Println(tf(ts))
-			log.Printf("%s is before %s: %t", tf(ts), tf(now), ts.Before(now))
-			if !ts.Before(now) {
-				outOfRange = true
-				break
-			}
-
-			valBuf := bytes.NewBuffer(item.Value)
-			decoder := json.NewDecoder(valBuf)
-
-			var task schedule.Task
-			if err := decoder.Decode(&task); err != nil {
-				return err
-			}
-
-			items[task.ID] = &task
-			op = clientv3.OpGet(fmt.Sprintf("schedule/%d", ts.UnixNano()+1), clientv3.WithFromKey(), clientv3.WithLimit(2), clientv3.WithSort(clientv3.SortByKey, clientv3.SortAscend))
-		}
-		// outOfRange = true
+	res, err := b.Do(context.Background(), op)
+	if err != nil {
+		return nil, err
 	}
 
-	// spew.Dump(res)
-	spew.Dump(items)
-	return nil
-	// b.KV.Get(context.Background())
+	for _, item := range res.Get().Kvs {
+		valBuf := bytes.NewBuffer(item.Value)
+		decoder := json.NewDecoder(valBuf)
+
+		var task schedule.Task
+		if err := decoder.Decode(&task); err != nil {
+			return nil, err
+		}
+
+		items = append(items, &task)
+	}
+
+	return items, nil
 }
 
 func (b *Provider) Close() error {

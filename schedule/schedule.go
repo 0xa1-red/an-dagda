@@ -2,6 +2,7 @@ package schedule
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -38,5 +39,5 @@ func (t *Task) Schedule(b backend.Provider, s time.Time) error {
 	key := fmt.Sprintf("schedule/%d/%s", s.UnixNano(), t.ID.String())
 	value := buf.String()
 
-	return b.Put(key, value)
+	return b.Put(context.Background(), key, value)
 }
