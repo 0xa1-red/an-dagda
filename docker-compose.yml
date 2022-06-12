@@ -1,0 +1,76 @@
+version: '3'
+
+services:
+  etcd_1:
+    &etcd
+    image: docker.io/bitnami/etcd:3.5
+    environment:
+      ALLOW_NONE_AUTHENTICATION: yes
+      ETCD_NAME: dagda_one
+      # ETCD_DISCOVERY=https://discovery.etcd.io/962fb699ebfaad7ab54dd7ce5482788c
+      ETCD_INITIAL_CLUSTER: dagda_one=http://172.16.100.10:2380,dagda_two=http://172.16.100.11:2380,dagda_three=http://172.16.100.12:2380
+      ETCD_INITIAL_CLUSTER_STATE: new
+      ETCD_INITIAL_ADVERTISE_PEER_URLS: http://172.16.100.10:2380
+      ETCD_LISTEN_PEER_URLS: http://172.16.100.10:2380
+      ETCD_LISTEN_CLIENT_URLS: http://172.16.100.10:2379
+      ETCD_ADVERTISE_CLIENT_URLS: http://172.16.100.10:2380
+    # volumes:
+    #   - etcd_1_data:/bitnami/etcd
+    ports:
+      - 2379:2379
+      - 2380:2380
+    networks:
+      app-tier:
+        ipv4_address: 172.16.100.10
+  etcd_2:
+    <<: *etcd
+    ports: []
+    networks:
+      app-tier:
+        ipv4_address: 172.16.100.11
+    # volumes:
+    #   - etcd_2_data:/bitnami/etcd
+    environment:
+      ALLOW_NONE_AUTHENTICATION: yes
+      ETCD_NAME: dagda_two
+      # ETCD_DISCOVERY=https://discovery.etcd.io/962fb699ebfaad7ab54dd7ce5482788c
+      ETCD_INITIAL_CLUSTER: "dagda_one=http://172.16.100.10:2380,dagda_two=http://172.16.100.11:2380,dagda_three=http://172.16.100.12:2380"
+      ETCD_INITIAL_CLUSTER_STATE: new
+      ETCD_INITIAL_ADVERTISE_PEER_URLS: http://172.16.100.11:2380
+      ETCD_LISTEN_PEER_URLS: http://172.16.100.11:2380
+      ETCD_LISTEN_CLIENT_URLS: http://172.16.100.11:2379
+      ETCD_ADVERTISE_CLIENT_URLS: http://172.16.100.11:2380
+  etcd_3:
+    <<: *etcd
+    ports: []
+    networks:
+      app-tier:
+        ipv4_address: 172.16.100.12
+    # volumes:
+    #   - etcd_3_data:/bitnami/etcd
+    environment:
+      ALLOW_NONE_AUTHENTICATION: yes
+      ETCD_NAME: dagda_three
+      # ETCD_DISCOVERY=https://discovery.etcd.io/962fb699ebfaad7ab54dd7ce5482788c
+      ETCD_INITIAL_CLUSTER: "dagda_one=http://172.16.100.10:2380,dagda_two=http://172.16.100.11:2380,dagda_three=http://172.16.100.12:2380"
+      ETCD_INITIAL_CLUSTER_STATE: new
+      ETCD_INITIAL_ADVERTISE_PEER_URLS: http://172.16.100.12:2380
+      ETCD_LISTEN_PEER_URLS: http://172.16.100.12:2380
+      ETCD_LISTEN_CLIENT_URLS: http://172.16.100.12:2379
+      ETCD_ADVERTISE_CLIENT_URLS: http://172.16.100.12:2380
+
+# volumes:
+#   etcd_1_data:
+#     driver: local
+#   etcd_2_data:
+#     driver: local
+#   etcd_3_data:
+#     driver: local
+
+networks:
+  app-tier:
+    ipam:
+      driver: default
+      config:
+        - subnet: "172.16.100.0/24"
+
