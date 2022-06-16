@@ -8,16 +8,27 @@ import (
 	"log"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/0xa1-red/an-dagda/schedule"
 	clientv3 "go.etcd.io/etcd/client/v3"
+	"go.etcd.io/etcd/client/v3/concurrency"
 )
+
+type taskMutex struct {
+	key   string
+	ttl   time.Time
+	mutex *concurrency.Mutex
+}
 
 // Provider is an etcd backend
 // TODO: Add a way to lock items currently being queried so they aren't accessed from anywhere else
 type Provider struct {
 	*clientv3.Client
+
+	session *concurrency.Session
+	mutexes *sync.Map
 }
 
 func New(endpoints []string) (*Provider, error) {
@@ -29,8 +40,17 @@ func New(endpoints []string) (*Provider, error) {
 		return nil, err
 	}
 
+	session, err := concurrency.NewSession(cli)
+	if err != nil {
+		cli.Close() // nolint
+		return nil, err
+	}
+
 	backend := Provider{
 		Client: cli,
+
+		session: session,
+		mutexes: &sync.Map{},
 	}
 	return &backend, nil
 }
@@ -42,7 +62,7 @@ func (b *Provider) Put(ctx context.Context, key, value string) error {
 	return nil
 }
 
-func (b *Provider) Delete(ctx context.Context, key, value string) error {
+func (b *Provider) Delete(ctx context.Context, key string) error {
 	if _, err := b.KV.Delete(ctx, key); err != nil {
 		return err
 	}
@@ -73,6 +93,7 @@ func (b *Provider) GetCurrentTasks() ([]*schedule.Task, error) {
 			return nil, err
 		}
 
+		b.LockTask(context.Background(), &task, 1*time.Hour)
 		items = append(items, &task)
 	}
 
@@ -81,6 +102,35 @@ func (b *Provider) GetCurrentTasks() ([]*schedule.Task, error) {
 
 func (b *Provider) Close() error {
 	return b.Client.Close()
+}
+
+func (b *Provider) LockTask(ctx context.Context, task *schedule.Task, ttl time.Duration) error {
+	key := task.Key()
+	etcdMx := concurrency.NewMutex(b.session, key)
+	if err := etcdMx.Lock(ctx); err != nil {
+		return err
+	}
+	mx := taskMutex{
+		key:   key,
+		ttl:   time.Now().Add(ttl),
+		mutex: etcdMx,
+	}
+
+	b.mutexes.Store(key, &mx)
+	return nil
+}
+
+func (b *Provider) UnlockTask(ctx context.Context, task *schedule.Task) error {
+	key := task.Key()
+	if mutex, ok := b.mutexes.Load(key); ok {
+		mx := mutex.(*taskMutex)
+		if err := mx.mutex.Unlock(ctx); err != nil {
+			return err
+		}
+		b.mutexes.Delete(key)
+		return nil
+	}
+	return fmt.Errorf("Mutex %s not found", key)
 }
 
 func parseTimestampFromKey(key []byte) (time.Time, error) {

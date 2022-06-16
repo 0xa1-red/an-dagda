@@ -28,6 +28,10 @@ func NewTask(topic, data string) *Task {
 	return &task
 }
 
+func (t *Task) Key() string {
+	return fmt.Sprintf("schedule/%d/%s", t.ScheduledAt.UnixNano(), t.ID.String())
+}
+
 func (t *Task) Schedule(b backend.Provider, s time.Time) error {
 	t.ScheduledAt = s
 	buf := bytes.NewBuffer([]byte(""))
@@ -36,7 +40,7 @@ func (t *Task) Schedule(b backend.Provider, s time.Time) error {
 		return err
 	}
 
-	key := fmt.Sprintf("schedule/%d/%s", s.UnixNano(), t.ID.String())
+	key := t.Key()
 	value := buf.String()
 
 	return b.Put(context.Background(), key, value)
