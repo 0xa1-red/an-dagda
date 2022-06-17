@@ -1,0 +1,34 @@
+syntax = "proto3";
+package task;
+
+option go_package = "github.com/0xa1-red/an-dagda/task";
+
+import "google/protobuf/timestamp.proto";
+
+enum Status {
+    OK = 0;
+    Error = 1;
+}
+
+message Empty {}
+
+message TaskRequest {
+    string TaskID = 1;
+    string TraceID = 2;
+    google.protobuf.Timestamp Timestamp = 3;
+}
+
+message TaskResponse {
+    Status Status = 1;
+    string Error = 2;
+    google.protobuf.Timestamp Timestamp = 3;
+}
+
+service Scheduler {
+    rpc Start (Empty) returns (Empty) {}
+    rpc Stop (Empty) returns (Empty) {}
+}
+
+service TaskProcessor {
+    rpc ProcessTask (TaskRequest) returns (TaskResponse) {}
+}
