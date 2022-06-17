@@ -1,0 +1,26 @@
+syntax = "proto3";
+package actor;
+
+option go_package = "github.com/0xa1-red/an-dagda/actor";
+
+import "google/protobuf/timestamp.proto";
+
+enum Status {
+    OK = 0;
+    Error = 1;
+}
+
+message SignalRequest {
+    string Action = 1;
+    google.protobuf.Timestamp Timestamp = 2;
+}
+
+message SignalResponse {
+    Status Status = 1;
+    string Error = 2;
+    google.protobuf.Timestamp Timestamp = 3;
+}
+
+service Scheduler {
+    rpc ProcessSchedule (SignalRequest) returns (SignalResponse) {}
+}
