@@ -58,14 +58,24 @@ services:
       ETCD_LISTEN_PEER_URLS: http://172.16.100.12:2380
       ETCD_LISTEN_CLIENT_URLS: http://172.16.100.12:2379
       ETCD_ADVERTISE_CLIENT_URLS: http://172.16.100.12:2380
+  # scheduler:
+  #   image: alfreddobradi/an-dagda:latest
+  #   networks:
+  #     - app-tier
+  #   command:
+  #     [
+  #       '/usr/bin/andagdad',
+  #       '--etcd-endpoints',
+  #       '172.16.100.10:2380,172.16.100.11:2380,172.16.100.12:2380'
+  #     ]
 
-# volumes:
-#   etcd_1_data:
-#     driver: local
-#   etcd_2_data:
-#     driver: local
-#   etcd_3_data:
-#     driver: local
+  # volumes:
+  #   etcd_1_data:
+  #     driver: local
+  #   etcd_2_data:
+  #     driver: local
+  #   etcd_3_data:
+  #     driver: local
 
 networks:
   app-tier:
@@ -73,4 +83,3 @@ networks:
       driver: default
       config:
         - subnet: "172.16.100.0/24"
-

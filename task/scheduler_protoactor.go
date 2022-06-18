@@ -73,6 +73,7 @@ type Scheduler interface {
 	ReceiveDefault(ctx cluster.GrainContext)
 	Start(*Empty, cluster.GrainContext) (*Empty, error)
 	Stop(*Empty, cluster.GrainContext) (*Empty, error)
+	Schedule(*ScheduleRequest, cluster.GrainContext) (*ScheduleResponse, error)
 }
 
 // SchedulerGrainClient holds the base data for the SchedulerGrain
@@ -121,6 +122,32 @@ func (g *SchedulerGrainClient) Stop(r *Empty, opts ...cluster.GrainCallOption) (
 	switch msg := resp.(type) {
 	case *cluster.GrainResponse:
 		result := &Empty{}
+		err = proto.Unmarshal(msg.MessageData, result)
+		if err != nil {
+			return nil, err
+		}
+		return result, nil
+	case *cluster.GrainErrorResponse:
+		return nil, errors.New(msg.Err)
+	default:
+		return nil, errors.New("unknown response")
+	}
+}
+
+// Schedule requests the execution on to the cluster with CallOptions
+func (g *SchedulerGrainClient) Schedule(r *ScheduleRequest, opts ...cluster.GrainCallOption) (*ScheduleResponse, error) {
+	bytes, err := proto.Marshal(r)
+	if err != nil {
+		return nil, err
+	}
+	reqMsg := &cluster.GrainRequest{MethodIndex: 2, MessageData: bytes}
+	resp, err := g.cluster.Call(g.Identity, "Scheduler", reqMsg, opts...)
+	if err != nil {
+		return nil, err
+	}
+	switch msg := resp.(type) {
+	case *cluster.GrainResponse:
+		result := &ScheduleResponse{}
 		err = proto.Unmarshal(msg.MessageData, result)
 		if err != nil {
 			return nil, err
@@ -203,6 +230,30 @@ func (a *SchedulerActor) Receive(ctx actor.Context) {
 			bytes, err := proto.Marshal(r0)
 			if err != nil {
 				plog.Error("Stop(Empty) proto.Marshal failed", logmod.Error(err))
+				resp := &cluster.GrainErrorResponse{Err: err.Error()}
+				ctx.Respond(resp)
+				return
+			}
+			resp := &cluster.GrainResponse{MessageData: bytes}
+			ctx.Respond(resp)
+		case 2:
+			req := &ScheduleRequest{}
+			err := proto.Unmarshal(msg.MessageData, req)
+			if err != nil {
+				plog.Error("Schedule(ScheduleRequest) proto.Unmarshal failed.", logmod.Error(err))
+				resp := &cluster.GrainErrorResponse{Err: err.Error()}
+				ctx.Respond(resp)
+				return
+			}
+			r0, err := a.inner.Schedule(req, a.ctx)
+			if err != nil {
+				resp := &cluster.GrainErrorResponse{Err: err.Error()}
+				ctx.Respond(resp)
+				return
+			}
+			bytes, err := proto.Marshal(r0)
+			if err != nil {
+				plog.Error("Schedule(ScheduleRequest) proto.Marshal failed", logmod.Error(err))
 				resp := &cluster.GrainErrorResponse{Err: err.Error()}
 				ctx.Respond(resp)
 				return

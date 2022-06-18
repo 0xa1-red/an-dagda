@@ -24,9 +24,22 @@ message TaskResponse {
     google.protobuf.Timestamp Timestamp = 3;
 }
 
+message ScheduleRequest {
+    string Message = 1;
+    string Channel = 2;
+    google.protobuf.Timestamp ScheduleAt = 3;
+}
+
+message ScheduleResponse {
+    Status Status = 1;
+    string Error = 2;
+}
+
 service Scheduler {
     rpc Start (Empty) returns (Empty) {}
     rpc Stop (Empty) returns (Empty) {}
+    rpc Schedule (ScheduleRequest) returns (ScheduleResponse) {}
+
 }
 
 service TaskProcessor {

@@ -1,11 +1,14 @@
 package task
 
 import (
+	"context"
 	"fmt"
-	"log"
 	"time"
 
+	"github.com/0xa1-red/an-dagda/backend"
+	"github.com/0xa1-red/an-dagda/schedule"
 	"github.com/asynkron/protoactor-go/cluster"
+	"github.com/asynkron/protoactor-go/log"
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -16,8 +19,15 @@ var (
 )
 
 type SchedulerGrain struct {
-	ctx cluster.GrainContext
-	t   *time.Ticker
+	ctx      cluster.GrainContext
+	t        *time.Ticker
+	provider backend.Provider
+}
+
+func NewScheduler(provider backend.Provider) Scheduler {
+	return &SchedulerGrain{
+		provider: provider,
+	}
 }
 
 func (a *SchedulerGrain) Init(ctx cluster.GrainContext) {
@@ -34,9 +44,8 @@ func (a *SchedulerGrain) Start(r *Empty, ctx cluster.GrainContext) (*Empty, erro
 	a.t = time.NewTicker(time.Second)
 	go func() {
 		for range a.t.C {
-			log.Println("Hello")
 			if err := a.processSchedule(); err != nil {
-				log.Printf("ERROR: %v", err)
+				plog.Error("Failed to process schedule", log.Error(err))
 			}
 		}
 	}()
@@ -53,33 +62,72 @@ func (a *SchedulerGrain) Stop(r *Empty, ctx cluster.GrainContext) (*Empty, error
 	return nil, nil
 }
 
+func (a *SchedulerGrain) Schedule(r *ScheduleRequest, ctx cluster.GrainContext) (*ScheduleResponse, error) {
+	task := schedule.Task{
+		ID:    uuid.New(),
+		Topic: r.Channel,
+		Data:  r.Message,
+	}
+	if err := a.provider.Schedule(context.Background(), &task, r.ScheduleAt.AsTime()); err != nil {
+		return &ScheduleResponse{Status: Status_Error, Error: err.Error()}, err
+	}
+	return &ScheduleResponse{Status: Status_OK}, nil
+}
+
 func (a *SchedulerGrain) processSchedule() error {
-	ids := []uuid.UUID{
-		uuid.New(),
-		uuid.New(),
-		uuid.New(),
+	tasks, err := a.provider.GetCurrentTasks(context.TODO())
+	if err != nil && err.Error() != "EOF" {
+		return fmt.Errorf("failed getting list of scheduled tasks: %w", err)
+	}
+
+	if len(tasks) == 0 {
+		plog.Debug("No new tasks")
+		return nil
 	}
 
 	traceID := uuid.New()
-	for _, id := range ids {
+	cleanup := []*schedule.Task{}
+	for _, task := range tasks {
 		taskGrain := GetTaskProcessorGrainClient(a.ctx.Cluster(), newTaskProcessorID())
 		req := TaskRequest{
-			TaskID:    id.String(),
+			TaskID:    task.ID.String(),
 			TraceID:   traceID.String(),
 			Timestamp: timestamppb.Now(),
 		}
 		_, err := taskGrain.ProcessTask(&req)
 		if err != nil {
-			log.Printf("ERROR: %v", err)
+			plog.Error("Failed to process task", log.String("task-id", task.ID.String()), log.Error(err))
 			return err
 		}
-		log.Printf("Task %s was successfully processed", id)
+		plog.Info("Task successfully processed", log.String("task-id", task.ID.String()), log.String("raw-data", task.Data))
+		cleanup = append(cleanup, task)
+	}
+
+	for _, task := range cleanup {
+		retries := 3
+		success := false
+		var err error
+		for tries := 0; tries < retries; tries++ {
+			err = a.provider.Delete(context.TODO(), task.Key())
+			if err == nil {
+				success = true
+				break
+			}
+			if tries < retries-1 {
+				plog.Warn("Failed to delete processed task, retrying", log.String("task-id", task.ID.String()), log.Error(err), log.Int("tries", tries))
+				time.Sleep(100 * time.Millisecond)
+			}
+		}
+		if !success {
+			plog.Error("Failed to delete processed task", log.String("task-id", task.ID.String()), log.Error(err))
+		}
+
+		plog.Info("Deleted processed task", log.String("task-id", task.ID.String()))
 	}
 	return nil
 }
 
 func init() {
-	log.Println("init")
 	SchedulerFactory(func() Scheduler {
 		return &SchedulerGrain{}
 	})

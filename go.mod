@@ -7,6 +7,7 @@ go 1.18
 require (
 	github.com/asynkron/protoactor-go v0.0.0-20220616142548-afd2d973a1d1
 	github.com/google/uuid v1.3.0
+	github.com/gorilla/mux v1.8.0
 	google.golang.org/protobuf v1.28.0
 )
 
@@ -32,7 +33,7 @@ require (
 	github.com/spaolacci/murmur3 v1.1.0 // indirect
 	go.etcd.io/etcd/api/v3 v3.5.4 // indirect
 	go.etcd.io/etcd/client/pkg/v3 v3.5.4 // indirect
-	go.etcd.io/etcd/client/v3 v3.5.4 // indirect
+	go.etcd.io/etcd/client/v3 v3.5.4
 	go.opentelemetry.io/otel v1.7.0 // indirect
 	go.opentelemetry.io/otel/exporters/prometheus v0.30.0 // indirect
 	go.opentelemetry.io/otel/metric v0.30.0 // indirect
