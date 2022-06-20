@@ -3,16 +3,17 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/0xa1-red/an-dagda/backend/etcd"
 	"github.com/0xa1-red/an-dagda/schedule"
+	"github.com/asynkron/protoactor-go/log"
 )
 
 var (
-	endpoints = []string{
-		"127.0.0.1:2379",
-	}
+	endpoints = []string{"127.0.0.1:2379"}
+	plog      = log.New(log.InfoLevel, "[CLIENT][main]")
 )
 
 func main() {
@@ -62,10 +63,12 @@ func main() {
 		t := schedule.NewTask("test", task.message)
 		ts, err := time.Parse("2006-01-02 15:04:05", task.timestamp)
 		if err != nil {
-			panic(err)
+			plog.Error("Failed to parse timestamp", log.Error(err))
+			os.Exit(1)
 		}
 		if err := etcdProvider.Schedule(context.TODO(), t, ts); err != nil {
-			panic(err)
+			plog.Error("Failed to schedule task", log.Error(err), log.String("message", t.Data))
+			os.Exit(1)
 		}
 	}
 }

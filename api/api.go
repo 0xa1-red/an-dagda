@@ -4,13 +4,17 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"log"
 	"net/http"
 
 	"github.com/0xa1-red/an-dagda/task"
 	"github.com/asynkron/protoactor-go/cluster"
+	"github.com/asynkron/protoactor-go/log"
 	"github.com/gorilla/mux"
 	"google.golang.org/protobuf/types/known/timestamppb"
+)
+
+var (
+	plog = log.New(log.InfoLevel, "[DAEMON][api]")
 )
 
 type Server struct {
@@ -21,10 +25,6 @@ type Server struct {
 
 func New(cluster *cluster.Cluster) *Server {
 	m := mux.NewRouter()
-
-	m.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("hi"))
-	})
 
 	m.HandleFunc("/schedule", func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Content-Type") != "application/json" {
@@ -38,8 +38,6 @@ func New(cluster *cluster.Cluster) *Server {
 			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 			return
 		}
-
-		log.Printf("%#v", req)
 
 		preq := task.ScheduleRequest{
 			Message:    req.Message,
@@ -69,7 +67,9 @@ func New(cluster *cluster.Cluster) *Server {
 			return
 		}
 
-		w.Write(buf.Bytes())
+		if _, err := w.Write(buf.Bytes()); err != nil {
+			plog.Error("Error writing response", log.Error(err))
+		}
 	})
 
 	s := http.Server{
@@ -83,7 +83,7 @@ func New(cluster *cluster.Cluster) *Server {
 
 	go func(s *Server) {
 		if err := s.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Printf("Error: %v", err)
+			plog.Error("HTTP server error", log.Error(err))
 			return
 		}
 	}(&ss)
@@ -92,5 +92,7 @@ func New(cluster *cluster.Cluster) *Server {
 }
 
 func (s *Server) Stop() {
-	s.Server.Shutdown(context.Background())
+	if err := s.Server.Shutdown(context.Background()); err != nil {
+		plog.Error("Error shutting down HTTP server", log.Error(err))
+	}
 }
