@@ -1,9 +1,8 @@
 package task
 
 import (
-	"log"
-
 	"github.com/asynkron/protoactor-go/cluster"
+	"github.com/asynkron/protoactor-go/log"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -11,7 +10,7 @@ type TaskProcessorGrain struct {
 }
 
 func (a TaskProcessorGrain) Init(ctx cluster.GrainContext) {
-	log.Printf("Initializing TaskProcessorGrain with ID %s", ctx.Self().Id)
+	plog.Info("Initializing TaskProcessorGrain", log.String("id", ctx.Self().Id))
 }
 func (a TaskProcessorGrain) Terminate(ctx cluster.GrainContext)      {}
 func (a TaskProcessorGrain) ReceiveDefault(ctx cluster.GrainContext) {}

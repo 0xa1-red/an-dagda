@@ -2,8 +2,6 @@ package main
 
 import (
 	"flag"
-	"fmt"
-	"log"
 	"net"
 	"os"
 	"os/signal"
@@ -17,22 +15,24 @@ import (
 	"github.com/asynkron/protoactor-go/cluster"
 	"github.com/asynkron/protoactor-go/cluster/clusterproviders/etcd"
 	"github.com/asynkron/protoactor-go/cluster/identitylookup/partition"
-	plog "github.com/asynkron/protoactor-go/log"
+	logmod "github.com/asynkron/protoactor-go/log"
 	"github.com/asynkron/protoactor-go/remote"
 	clientv3 "go.etcd.io/etcd/client/v3"
 )
 
 var (
-	etcdEndpoints string
+	endpoints string
+	plog      = logmod.New(logmod.InfoLevel, "[DAEMON][main]")
 )
 
 func main() {
-	flag.StringVar(&etcdEndpoints, "etcd-endpoints", "127.0.0.1:2379", "Comma-separated list of etcd endpoints")
+	flag.StringVar(&endpoints, "endpoints", "127.0.0.1:2379", "Comma-separated list of etcd endpoints")
 	flag.Parse()
 
-	endpoints := strings.Split(etcdEndpoints, ",")
+	endpoints := strings.Split(endpoints, ",")
 	if len(endpoints) == 0 {
-		panic(fmt.Errorf("Endpoints can't be empty"))
+		plog.Error("No endpoints specified")
+		os.Exit(1)
 	}
 
 	sigs := make(chan os.Signal, 1)
@@ -42,13 +42,13 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	log.Println("Backend provider created")
+	plog.Info("Backend provider created")
 
 	system := actor.NewActorSystem()
 
-	cluster.SetLogLevel(plog.InfoLevel)
-	remote.SetLogLevel(plog.InfoLevel)
-	partition.SetLogLevel(plog.InfoLevel)
+	cluster.SetLogLevel(logmod.InfoLevel)
+	remote.SetLogLevel(logmod.InfoLevel)
+	partition.SetLogLevel(logmod.InfoLevel)
 
 	protoProvider, err := etcd.NewWithConfig("/protoactor", clientv3.Config{
 		Endpoints:   endpoints,
@@ -57,11 +57,11 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	log.Println("Protoactor provider created")
+	plog.Info("Protoactor provider created")
 
 	lookup := partition.New()
 	ip := getOutboundIP()
-	log.Println("Advertising host " + ip.String() + ":56601")
+	plog.Info("Advertising host " + ip.String() + ":56601")
 
 	config := remote.Configure("0.0.0.0", 56601, remote.WithAdvertisedHost(ip.String()+":56601"))
 
@@ -78,12 +78,12 @@ func main() {
 
 	c := cluster.New(system, clusterConfig)
 	c.StartMember()
-	log.Println("Cluster member started")
+	plog.Info("Cluster member started")
 	defer c.Shutdown(true)
 
 	client := task.GetSchedulerGrainClient(c, task.OverseerID.String())
 	if _, err := client.Start(&task.Empty{}); err != nil {
-		log.Printf("Couldn't start overseer: %v", err)
+		plog.Error("Couldn't start overseer", logmod.Error(err))
 		os.Exit(1)
 	}
 
@@ -99,7 +99,8 @@ func getOutboundIP() net.IP { //nolint
 	// this tries to connect to a fake UDP service, we just need the conn to be created
 	conn, err := net.Dial("udp", "github.com:80")
 	if err != nil {
-		panic(fmt.Errorf("while trying to infere this host IP: %w", err))
+		plog.Error("Failed to infer host IP", logmod.Error(err))
+		os.Exit(1)
 	}
 	defer conn.Close()
 
