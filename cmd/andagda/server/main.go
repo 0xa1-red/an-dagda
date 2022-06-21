@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"net"
 	"os"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/0xa1-red/an-dagda/api"
 	intetcd "github.com/0xa1-red/an-dagda/backend/etcd"
+	"github.com/0xa1-red/an-dagda/instrumentation"
 	"github.com/0xa1-red/an-dagda/task"
 	"github.com/asynkron/protoactor-go/actor"
 	"github.com/asynkron/protoactor-go/cluster"
@@ -28,6 +30,12 @@ var (
 func main() {
 	flag.StringVar(&endpoints, "endpoints", "127.0.0.1:2379", "Comma-separated list of etcd endpoints")
 	flag.Parse()
+
+	_, err := instrumentation.Provider()
+	if err != nil {
+		panic(err)
+	}
+	defer instrumentation.Close(context.TODO())
 
 	endpoints := strings.Split(endpoints, ",")
 	if len(endpoints) == 0 {
@@ -70,7 +78,7 @@ func main() {
 	}, 0)
 
 	processorKind := task.NewTaskProcessorKind(func() task.TaskProcessor {
-		return &task.TaskProcessorGrain{}
+		return task.NewTaskProcessor()
 	}, 0)
 
 	clusterConfig := cluster.Configure("an-dagda", protoProvider, lookup, config,
