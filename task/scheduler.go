@@ -10,6 +10,8 @@ import (
 	"github.com/asynkron/protoactor-go/cluster"
 	"github.com/asynkron/protoactor-go/log"
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/propagation"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -63,21 +65,31 @@ func (a *SchedulerGrain) Stop(r *Empty, ctx cluster.GrainContext) (*Empty, error
 }
 
 func (a *SchedulerGrain) Schedule(r *ScheduleRequest, ctx cluster.GrainContext) (*ScheduleResponse, error) {
+	sctx, span := tracer.Start(context.Background(), "schedule")
+	defer span.End()
+
+	id := uuid.New()
+
 	task := schedule.Task{
-		ID:    uuid.New(),
+		ID:    id,
 		Topic: r.Channel,
 		Data:  r.Message,
 	}
-	if err := a.provider.Schedule(context.Background(), &task, r.ScheduleAt.AsTime()); err != nil {
+	span.SetAttributes(attribute.String("task-id", id.String()))
+	if err := a.provider.Schedule(sctx, &task, r.ScheduleAt.AsTime()); err != nil {
 		return &ScheduleResponse{Status: Status_Error, Error: err.Error()}, err
 	}
 	return &ScheduleResponse{Status: Status_OK}, nil
 }
 
 func (a *SchedulerGrain) processSchedule() error {
-	tasks, err := a.provider.GetCurrentTasks(context.TODO())
+	sctx, span := tracer.Start(context.Background(), "process-schedule")
+	defer span.End()
+	tasks, err := a.provider.GetCurrentTasks(sctx)
 	if err != nil && err.Error() != "EOF" {
-		return fmt.Errorf("failed getting list of scheduled tasks: %w", err)
+		err = fmt.Errorf("Failed to get list of scheduled tasks: %w", err)
+		span.RecordError(err)
+		return err
 	}
 
 	if len(tasks) == 0 {
@@ -85,22 +97,34 @@ func (a *SchedulerGrain) processSchedule() error {
 		return nil
 	}
 
-	traceID := uuid.New()
+	tc := propagation.TraceContext{}
+	carrier := propagation.MapCarrier{}
+	tc.Inject(sctx, carrier)
+
+	traceID := carrier.Get(tc.Fields()[0])
 	cleanup := []*schedule.Task{}
 	for _, task := range tasks {
+		if err := a.provider.LockTask(sctx, task, 1*time.Hour); err != nil {
+			plog.Error("Error locking task", log.String("task-id", task.ID.String()))
+			continue
+		}
 		taskGrain := GetTaskProcessorGrainClient(a.ctx.Cluster(), newTaskProcessorID())
 		req := TaskRequest{
 			TaskID:    task.ID.String(),
-			TraceID:   traceID.String(),
+			TraceID:   traceID,
 			Timestamp: timestamppb.Now(),
 		}
 		_, err := taskGrain.ProcessTask(&req)
 		if err != nil {
+			span.RecordError(err)
 			plog.Error("Failed to process task", log.String("task-id", task.ID.String()), log.Error(err))
 			return err
 		}
-		plog.Info("Task successfully processed", log.String("task-id", task.ID.String()), log.String("raw-data", task.Data))
+		plog.Info("Task successfully processed", log.String("trace-id", traceID), log.String("task-id", task.ID.String()), log.String("raw-data", task.Data))
 		cleanup = append(cleanup, task)
+		if err := a.provider.UnlockTask(sctx, task); err != nil {
+			plog.Error("Error locking task", log.String("task-id", task.ID.String()))
+		}
 	}
 
 	for _, task := range cleanup {
@@ -108,7 +132,8 @@ func (a *SchedulerGrain) processSchedule() error {
 		success := false
 		var err error
 		for tries := 0; tries < retries; tries++ {
-			err = a.provider.Delete(context.TODO(), task.Key())
+			sctx = context.WithValue(sctx, "task-id", task.ID.String())
+			err = a.provider.Delete(sctx, task.Key())
 			if err == nil {
 				success = true
 				break
@@ -119,6 +144,7 @@ func (a *SchedulerGrain) processSchedule() error {
 			}
 		}
 		if !success {
+			span.RecordError(err)
 			plog.Error("Failed to delete processed task", log.String("task-id", task.ID.String()), log.Error(err))
 		}
 
